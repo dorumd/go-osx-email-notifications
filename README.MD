@@ -15,3 +15,8 @@
 - Fix email url
 - Run it on startup
 - Use GoRoutines for processing at the same time multiple emails
+- Add support for multiple gmail accounts
+- Show an icon in top bar when application is running
+- Add UI for authentication
+- Fix bugs
+- Set a limit for unread messages(display maximum 10 notifications)

@@ -34,56 +34,55 @@ func main() {
 	var queue = make([]models.Message, 0)
 	var processedQueue = make(map[string]bool, 0)
 	var pushToQueue = false
+	var firstRun = true
 
-	quitChan := make(chan bool)
-	t := time.NewTicker(20 * time.Second)
-	for {
-		select {
-		case <-t.C:
-			fmt.Printf("Processing started at %s\n", time.Now().Format(utils.DateTimeFormat))
-			if mResponse, err := gmailClient.Users.Messages.List(utils.User).Q("is:unread AND is:important AND newer_than:2d").Do(); err == nil {
-				for _, m := range mResponse.Messages {
-					if message, err := gmailClient.Users.Messages.Get(utils.User, m.Id).Do(); err == nil {
-						var messageItem = models.Message{}
-						messageItem.ID = message.Id
-						for _, header := range message.Payload.Headers {
-							if header.Name == "From" {
-								messageItem.From = header.Value
-							} else if header.Name == "Subject" {
-								messageItem.Subject = header.Value
-							}
+	ticker := time.NewTicker(20 * time.Second)
+	for _ = range ticker.C {
+		fmt.Printf("Processing started at %s\n", time.Now().Format(utils.DateTimeFormat))
+		if mResponse, err := gmailClient.Users.Messages.List(utils.User).Q("is:unread AND is:important").Do(); err == nil {
+			mResponseMessages := mResponse.Messages[0:utils.NotificationsLimit]
+
+			if firstRun && len(mResponse.Messages) > utils.NotificationsLimit {
+				utils.SystemNotification("You have more than 10 unread messages in your inbox")
+				firstRun = false
+			}
+
+			for _, m := range mResponseMessages {
+				if message, err := gmailClient.Users.Messages.Get(utils.User, m.Id).Do(); err == nil {
+					var messageItem = models.Message{}
+					messageItem.ID = message.Id
+					for _, header := range message.Payload.Headers {
+						if header.Name == "From" {
+							messageItem.From = header.Value
+						} else if header.Name == "Subject" {
+							messageItem.Subject = header.Value
 						}
-						if ok := processedQueue[messageItem.ID]; ok != true {
-							messageItem.Link = strings.Replace(utils.BaseGmaiMessageURL, "%MESSAGE_ID%", message.Id, -1)
-							if pushToQueue == true {
-								queue = append(queue, messageItem)
-							}
-							utils.Notify(messageItem)
+					}
+					if ok := processedQueue[messageItem.ID]; ok != true {
+						messageItem.Link = strings.Replace(utils.BaseGmailMessageURL, "%MESSAGE_ID%", message.Id, -1)
+						if pushToQueue == true {
+							queue = append(queue, messageItem)
+						} else {
+							utils.NotifyMessage(messageItem)
 							processedQueue[messageItem.ID] = true
 							pushToQueue = true
 						}
-					} else {
-						fmt.Printf("There was an error trying to get message - %s\n", err.Error())
 					}
+				} else {
+					fmt.Printf("There was an error trying to get message - %s\n", err.Error())
 				}
-			} else {
-				fmt.Printf("There was an error trying to get messages - %s\n", err.Error())
 			}
+		} else {
+			fmt.Printf("There was an error trying to get messages - %s\n", err.Error())
+		}
 
-			if len(queue) > 0 {
-				// Wait till first message will be hidden
-				time.Sleep(1 * time.Second)
-				for _, message := range queue {
-					utils.Notify(message)
-					processedQueue[message.ID] = true
-					time.Sleep(3 * time.Second)
-				}
-				queue = make([]models.Message, 0)
-				pushToQueue = false
+		if len(queue) > 0 {
+			for _, message := range queue {
+				utils.NotifyMessage(message)
+				processedQueue[message.ID] = true
 			}
-		case <-quitChan:
-			t.Stop()
-			return
+			queue = make([]models.Message, 0)
+			pushToQueue = false
 		}
 		fmt.Printf("Processing ended at %s\n", time.Now().Format(utils.DateTimeFormat))
 	}

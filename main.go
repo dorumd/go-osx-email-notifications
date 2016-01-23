@@ -9,7 +9,6 @@ import (
 	"google.golang.org/api/gmail/v1"
 	"io/ioutil"
 	"log"
-	"strings"
 	"time"
 )
 
@@ -31,47 +30,26 @@ func main() {
 		log.Fatalf("Unable to retrieve gmail Client %v", err)
 	}
 
+	ticker := time.NewTicker(utils.Timeout * time.Second)
 	var queue = make([]models.Message, 0)
 	var processedQueue = make(map[string]bool, 0)
 	var pushToQueue = false
 	var firstRun = true
-
-	ticker := time.NewTicker(20 * time.Second)
+	var lastProcessedMessageTimestamp int64
 	for _ = range ticker.C {
 		fmt.Printf("Processing started at %s\n", time.Now().Format(utils.DateTimeFormat))
 		if mResponse, err := gmailClient.Users.Messages.List(utils.User).Q("is:unread AND is:important").Do(); err == nil {
 			mResponseMessages := mResponse.Messages[0:utils.NotificationsLimit]
 
 			if firstRun && len(mResponse.Messages) > utils.NotificationsLimit {
-				utils.SystemNotification("You have more than 10 unread messages in your inbox")
+				utils.SystemNotification(fmt.Sprintf(
+					"You have more than %v unread messages in your inbox",
+					utils.NotificationsLimit,
+				))
 				firstRun = false
 			}
 
-			for _, m := range mResponseMessages {
-				if message, err := gmailClient.Users.Messages.Get(utils.User, m.Id).Do(); err == nil {
-					var messageItem = models.Message{}
-					messageItem.ID = message.Id
-					for _, header := range message.Payload.Headers {
-						if header.Name == "From" {
-							messageItem.From = header.Value
-						} else if header.Name == "Subject" {
-							messageItem.Subject = header.Value
-						}
-					}
-					if ok := processedQueue[messageItem.ID]; ok != true {
-						messageItem.Link = strings.Replace(utils.BaseGmailMessageURL, "%MESSAGE_ID%", message.Id, -1)
-						if pushToQueue == true {
-							queue = append(queue, messageItem)
-						} else {
-							utils.NotifyMessage(messageItem)
-							processedQueue[messageItem.ID] = true
-							pushToQueue = true
-						}
-					}
-				} else {
-					fmt.Printf("There was an error trying to get message - %s\n", err.Error())
-				}
-			}
+			queue, processedQueue, pushToQueue, lastProcessedMessageTimestamp = utils.ProcessMessages(mResponseMessages, gmailClient, queue, processedQueue, pushToQueue, lastProcessedMessageTimestamp)
 		} else {
 			fmt.Printf("There was an error trying to get messages - %s\n", err.Error())
 		}

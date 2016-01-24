@@ -1,4 +1,4 @@
-package main
+package provider
 
 import (
 	"./models"
@@ -12,9 +12,11 @@ import (
 	"time"
 )
 
-func main() {
+var gmailClient *gmail.Service
+
+func Init() {
 	context := context.Background()
-	clientSecretFile, err := ioutil.ReadFile("config/client_secret.json")
+	clientSecretFile, err := ioutil.ReadFile("../config/client_secret.json")
 	if err != nil {
 		log.Fatalf("Unable to read client secret file: %v", err)
 	}
@@ -25,12 +27,13 @@ func main() {
 	}
 	client := utils.GetClient(context, config)
 
-	gmailClient, err := gmail.New(client)
+	gmailClient, err = gmail.New(client)
 	if err != nil {
 		log.Fatalf("Unable to retrieve gmail Client %v", err)
 	}
+}
 
-	ticker := time.NewTicker(utils.Timeout * time.Second)
+func Run(timeout int, notificationsLimit int, ticker *time.Ticker) {
 	var queue = make([]models.Message, 0)
 	var processedQueue = make(map[string]bool, 0)
 	var pushToQueue = false
@@ -39,12 +42,12 @@ func main() {
 	for _ = range ticker.C {
 		fmt.Printf("Processing started at %s\n", time.Now().Format(utils.DateTimeFormat))
 		if mResponse, err := gmailClient.Users.Messages.List(utils.User).Q("is:unread AND is:important").Do(); err == nil {
-			mResponseMessages := mResponse.Messages[0:utils.NotificationsLimit]
+			mResponseMessages := mResponse.Messages[0:notificationsLimit]
 
 			if firstRun && len(mResponse.Messages) > utils.NotificationsLimit {
 				utils.SystemNotification(fmt.Sprintf(
 					"You have more than %v unread messages in your inbox",
-					utils.NotificationsLimit,
+					notificationsLimit,
 				))
 				firstRun = false
 			}
